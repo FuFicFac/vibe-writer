@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import useStore from '../store/useStore';
-import { X, Settings2, KeyRound, Bot, Sparkles, UserCircle2, Plus, Trash2, Palette, SunMedium, Moon, Keyboard, Monitor } from 'lucide-react';
+import { X, Settings2, KeyRound, Bot, Sparkles, UserCircle2, Plus, Trash2, Palette, SunMedium, Moon, Keyboard, Monitor, Brain, RefreshCw } from 'lucide-react';
 import clsx from 'clsx';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -13,6 +13,8 @@ export default function AiSettingsModal({ isOpen, onClose, mode = 'all' }) {
     const defaultTab = isApiOnly ? 'api' : 'persona';
 
     const [openRouterKey, setOpenRouterKey] = useState(settings.openRouterApiKey || '');
+    const [openRouterModel, setOpenRouterModel] = useState(settings.openRouterModel || 'google/gemini-2.5-pro');
+    const [openRouterThinkingEnabled, setOpenRouterThinkingEnabled] = useState(Boolean(settings.openRouterThinkingEnabled));
     const [openAiKey, setOpenAiKey] = useState(settings.openAiApiKey || '');
     const [themeMode, setThemeMode] = useState(settings.themeMode || 'dark');
     const [quickAiContinueEnabled, setQuickAiContinueEnabled] = useState(Boolean(settings.quickAiContinueEnabled));
@@ -23,6 +25,10 @@ export default function AiSettingsModal({ isOpen, onClose, mode = 'all' }) {
 
     // Local edit state
     const [editForm, setEditForm] = useState({ title: '', description: '', systemPrompt: '' });
+    const [openRouterModels, setOpenRouterModels] = useState([]);
+    const [openRouterModelsLoading, setOpenRouterModelsLoading] = useState(false);
+    const [openRouterModelsError, setOpenRouterModelsError] = useState('');
+    const [openRouterModelSearch, setOpenRouterModelSearch] = useState('');
 
     // Sync form when selection changes
     React.useEffect(() => {
@@ -37,18 +43,28 @@ export default function AiSettingsModal({ isOpen, onClose, mode = 'all' }) {
     React.useEffect(() => {
         if (isOpen) {
             setOpenRouterKey(settings.openRouterApiKey || '');
+            setOpenRouterModel(settings.openRouterModel || 'google/gemini-2.5-pro');
+            setOpenRouterThinkingEnabled(Boolean(settings.openRouterThinkingEnabled));
             setOpenAiKey(settings.openAiApiKey || '');
             setThemeMode(settings.themeMode || 'dark');
             setQuickAiContinueEnabled(Boolean(settings.quickAiContinueEnabled));
             setActiveTab(defaultTab);
         }
-    }, [isOpen, settings.openRouterApiKey, settings.openAiApiKey, settings.themeMode, settings.quickAiContinueEnabled, defaultTab]);
+    }, [isOpen, settings.openRouterApiKey, settings.openRouterModel, settings.openRouterThinkingEnabled, settings.openAiApiKey, settings.themeMode, settings.quickAiContinueEnabled, defaultTab]);
+
+    React.useEffect(() => {
+        if (!isOpen || !showPersonaTab) return;
+        if (openRouterModels.length > 0 || openRouterModelsLoading) return;
+        loadOpenRouterModels();
+    }, [isOpen, showPersonaTab]); // intentionally only on open/show
 
     if (!isOpen) return null;
 
     const handleSaveAPI = () => {
         updateSettings({
             openRouterApiKey: openRouterKey.trim(),
+            openRouterModel: openRouterModel || 'google/gemini-2.5-pro',
+            openRouterThinkingEnabled: Boolean(openRouterThinkingEnabled),
             openAiApiKey: openAiKey.trim(),
             themeMode: themeMode === 'light' ? 'light' : 'dark',
             quickAiContinueEnabled: Boolean(quickAiContinueEnabled),
@@ -80,6 +96,61 @@ export default function AiSettingsModal({ isOpen, onClose, mode = 'all' }) {
         setThemeMode(nextMode);
         // Apply immediately so the user gets instant visual feedback.
         updateSettings({ themeMode: nextMode });
+    };
+
+    const loadOpenRouterModels = async () => {
+        setOpenRouterModelsLoading(true);
+        setOpenRouterModelsError('');
+        try {
+            const response = await fetch('https://openrouter.ai/api/v1/models');
+            if (!response.ok) {
+                throw new Error(`OpenRouter models request failed (${response.status})`);
+            }
+            const data = await response.json();
+            const models = Array.isArray(data?.data) ? data.data : [];
+
+            const normalized = models
+                .filter((m) => m?.id && (m?.architecture?.output_modalities || ['text']).includes('text'))
+                .map((m) => ({
+                    id: m.id,
+                    name: m.name || m.id,
+                    contextLength: m.context_length || m.top_provider?.context_length || null,
+                    supportsReasoning: Array.isArray(m.supported_parameters)
+                        ? m.supported_parameters.includes('reasoning')
+                        : false,
+                    supportedParameters: Array.isArray(m.supported_parameters) ? m.supported_parameters : [],
+                }))
+                .sort((a, b) => a.name.localeCompare(b.name));
+
+            setOpenRouterModels(normalized);
+
+            if (!normalized.some(m => m.id === openRouterModel)) {
+                const fallback = normalized.find(m => m.id === 'google/gemini-2.5-pro') || normalized[0];
+                if (fallback) setOpenRouterModel(fallback.id);
+            }
+        } catch (error) {
+            console.error('Failed to load OpenRouter models:', error);
+            setOpenRouterModelsError(error.message || 'Failed to load model list.');
+        } finally {
+            setOpenRouterModelsLoading(false);
+        }
+    };
+
+    const filteredOpenRouterModels = openRouterModels.filter((model) => {
+        const q = openRouterModelSearch.trim().toLowerCase();
+        if (!q) return true;
+        return model.id.toLowerCase().includes(q) || model.name.toLowerCase().includes(q);
+    });
+
+    const selectedOpenRouterModelMeta = openRouterModels.find(m => m.id === openRouterModel) || null;
+    const selectedModelSupportsReasoning = Boolean(selectedOpenRouterModelMeta?.supportsReasoning);
+
+    const handleOpenRouterModelChange = (value) => {
+        setOpenRouterModel(value);
+        const modelMeta = openRouterModels.find(m => m.id === value);
+        if (modelMeta && !modelMeta.supportsReasoning) {
+            setOpenRouterThinkingEnabled(false);
+        }
     };
 
     // The handleSave was replaced by handleSaveAPI above
@@ -160,6 +231,91 @@ export default function AiSettingsModal({ isOpen, onClose, mode = 'all' }) {
                                     >
                                         <Plus size={16} /> New Skill
                                     </button>
+                                </div>
+
+                                <div className="mb-6 rounded-lg border border-seahawks-gray/10 vw-surface-2 p-4">
+                                    <div className="flex items-start justify-between gap-3">
+                                        <div>
+                                            <h4 className="text-sm font-semibold vw-text-primary flex items-center gap-2">
+                                                <Brain size={16} className="text-seahawks-green" />
+                                                OpenRouter Model Picker
+                                            </h4>
+                                            <p className="text-xs text-seahawks-gray mt-1 leading-relaxed">
+                                                Used for AI actions when OpenRouter is the active provider (CLI mode ignores this).
+                                                Thinking can be toggled only for models that support OpenRouter <code>reasoning</code>.
+                                            </p>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={loadOpenRouterModels}
+                                            disabled={openRouterModelsLoading}
+                                            className={clsx(
+                                                'shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border text-xs transition-colors',
+                                                openRouterModelsLoading
+                                                    ? 'border-seahawks-gray/20 text-seahawks-gray cursor-not-allowed'
+                                                    : 'border-seahawks-green/30 text-seahawks-green hover:bg-seahawks-green/10'
+                                            )}
+                                            title="Refresh model list from OpenRouter"
+                                        >
+                                            <RefreshCw size={13} className={clsx(openRouterModelsLoading && 'animate-spin')} />
+                                            Refresh
+                                        </button>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-[1.2fr_auto] gap-3 mt-4">
+                                        <div className="space-y-2">
+                                            <input
+                                                type="text"
+                                                value={openRouterModelSearch}
+                                                onChange={(e) => setOpenRouterModelSearch(e.target.value)}
+                                                placeholder="Search OpenRouter models..."
+                                                className="w-full vw-surface-3 border border-seahawks-gray/20 rounded-md py-2 px-3 text-sm vw-text-primary focus:outline-none focus:border-seahawks-green transition-colors"
+                                            />
+                                            <select
+                                                value={openRouterModel}
+                                                onChange={(e) => handleOpenRouterModelChange(e.target.value)}
+                                                className="w-full vw-surface-3 border border-seahawks-gray/20 rounded-md py-2 px-3 text-sm vw-text-primary focus:outline-none focus:border-seahawks-green transition-colors"
+                                            >
+                                                {(filteredOpenRouterModels.length ? filteredOpenRouterModels : [{ id: openRouterModel, name: openRouterModel }]).map((model) => (
+                                                    <option key={model.id} value={model.id}>
+                                                        {model.name} ({model.id})
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+
+                                        <div className="flex flex-col gap-2 min-w-[220px]">
+                                            <button
+                                                type="button"
+                                                disabled={!selectedModelSupportsReasoning}
+                                                onClick={() => setOpenRouterThinkingEnabled((prev) => !prev)}
+                                                className={clsx(
+                                                    'flex items-center justify-between rounded-md border px-3 py-2 text-sm transition-colors',
+                                                    !selectedModelSupportsReasoning
+                                                        ? 'border-seahawks-gray/20 text-seahawks-gray/60 cursor-not-allowed opacity-70'
+                                                        : openRouterThinkingEnabled
+                                                            ? 'border-seahawks-green/40 bg-seahawks-green/10 text-seahawks-green'
+                                                            : 'border-seahawks-gray/20 text-seahawks-gray hover:text-white hover:bg-seahawks-navy/30'
+                                                )}
+                                                title={selectedModelSupportsReasoning ? 'Toggle OpenRouter reasoning (thinking)' : 'Selected model does not expose reasoning controls'}
+                                            >
+                                                <span>Thinking</span>
+                                                <span className="text-xs font-semibold">
+                                                    {selectedModelSupportsReasoning ? (openRouterThinkingEnabled ? 'On' : 'Off') : 'Unsupported'}
+                                                </span>
+                                            </button>
+
+                                            <div className="text-[11px] text-seahawks-gray leading-relaxed">
+                                                {openRouterModelsLoading
+                                                    ? 'Loading OpenRouter model list...'
+                                                    : openRouterModelsError
+                                                        ? `Model list error: ${openRouterModelsError}`
+                                                        : selectedOpenRouterModelMeta
+                                                            ? `${selectedOpenRouterModelMeta.contextLength ? `${selectedOpenRouterModelMeta.contextLength.toLocaleString()} context` : 'Context unknown'} • ${selectedModelSupportsReasoning ? 'Reasoning supported' : 'No reasoning control'}`
+                                                            : 'Select a model to see capabilities.'}
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
 
                                 <div className="flex flex-col md:flex-row gap-6 flex-1 min-h-0">

@@ -52,6 +52,21 @@ export async function generateText({ prompt, systemPrompt, temperature = 0.7 }) 
     } else if (settings.openRouterApiKey) {
         // Use OpenRouter
         try {
+            const model = settings.openRouterModel || 'google/gemini-2.5-pro';
+            const thinkingEnabled = Boolean(settings.openRouterThinkingEnabled);
+            const requestBody = {
+                model,
+                messages: [
+                    { role: 'system', content: systemPrompt || 'You are a helpful assistant.' },
+                    { role: 'user', content: prompt }
+                ],
+                temperature
+            };
+
+            if (thinkingEnabled) {
+                requestBody.reasoning = { effort: 'medium' };
+            }
+
             const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
                 method: 'POST',
                 headers: {
@@ -60,14 +75,7 @@ export async function generateText({ prompt, systemPrompt, temperature = 0.7 }) 
                     'X-Title': 'Vibe Writer',
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({
-                    model: 'google/gemini-2.5-pro', // Primary default
-                    messages: [
-                        { role: 'system', content: systemPrompt || 'You are a helpful assistant.' },
-                        { role: 'user', content: prompt }
-                    ],
-                    temperature
-                })
+                body: JSON.stringify(requestBody)
             });
 
             if (!response.ok) {
