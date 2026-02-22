@@ -29,7 +29,8 @@ export async function generateText({ prompt, systemPrompt, temperature = 0.7 }) 
                 body: JSON.stringify({
                     messages: [{ role: 'user', content: prompt }],
                     systemPrompt: systemPrompt || 'You are a helpful assistant.',
-                    temperature
+                    temperature,
+                    model: settings.openAiModel || 'gpt-4o-mini'
                 })
             });
 

@@ -42,6 +42,7 @@ export default function EditorArea({ documentId, isSecondary, findNavigationRequ
     });
 
     const activeDocument = documents.find(d => d.id === documentId);
+    const aiBusy = isGenerating || expandDialog.isGenerating;
 
     const editor = useEditor({
         extensions: [
@@ -290,6 +291,19 @@ export default function EditorArea({ documentId, isSecondary, findNavigationRequ
         handleQuickAiContinue();
     };
 
+    // Attach directly to the ProseMirror DOM so the shortcut is reliable.
+    useEffect(() => {
+        if (!editor?.view?.dom) return;
+
+        const dom = editor.view.dom;
+        const listener = (event) => handleEditorKeyDown(event);
+        dom.addEventListener('keydown', listener);
+
+        return () => {
+            dom.removeEventListener('keydown', listener);
+        };
+    }, [editor, settings?.quickAiContinueEnabled, expandDialog.isOpen, isGenerating, activeDocument?.id]);
+
     const commitDocumentTitle = () => {
         if (!activeDocument) return;
         const nextName = documentTitleDraft.trim();
@@ -364,8 +378,17 @@ export default function EditorArea({ documentId, isSecondary, findNavigationRequ
                         aria-label="Document title"
                     />
 
-                    <div className="vw-text-soft text-sm mb-12 flex items-center gap-4">
+                    <div className="vw-text-soft text-sm mb-12 flex items-center gap-4 flex-wrap">
                         <span>Auto-saving enabled</span>
+                        {aiBusy && (
+                            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-seahawks-green/30 bg-seahawks-green/10 text-seahawks-green">
+                                <Loader2 size={12} className="animate-spin" />
+                                <span className="text-xs font-medium">AI thinking...</span>
+                                <div className="w-14 h-1 rounded-full bg-seahawks-green/20 overflow-hidden">
+                                    <div className="h-full w-1/2 bg-seahawks-green animate-pulse rounded-full" />
+                                </div>
+                            </div>
+                        )}
                     </div>
 
                     <div className="text-lg font-serif leading-relaxed vw-text-muted pb-32 relative">
@@ -440,7 +463,7 @@ export default function EditorArea({ documentId, isSecondary, findNavigationRequ
                                 )}
                             </BubbleMenu>
                         )}
-                        <EditorContent editor={editor} onKeyDown={handleEditorKeyDown} />
+                        <EditorContent editor={editor} />
                     </div>
                 </div>
             </main>
@@ -569,6 +592,15 @@ export default function EditorArea({ documentId, isSecondary, findNavigationRequ
                     <span className="opacity-60">Tokens: {(activeDocument.tokenCount || 0).toLocaleString()}</span>
                 </div>
             </footer>
+
+            {isGenerating && (
+                <div className="absolute right-6 bottom-16 z-20 pointer-events-none">
+                    <div className="flex items-center gap-2 rounded-lg border border-seahawks-green/25 bg-seahawks-navy/90 px-3 py-2 shadow-lg backdrop-blur-sm">
+                        <Loader2 size={14} className="animate-spin text-seahawks-green" />
+                        <span className="text-xs font-medium text-seahawks-green">Generating with AI...</span>
+                    </div>
+                </div>
+            )}
 
             {expandDialog.isOpen && (
                 <div className="fixed inset-0 z-[70] bg-[#001024]/80 backdrop-blur-sm flex items-center justify-center p-4">

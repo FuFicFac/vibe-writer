@@ -16,6 +16,7 @@ export default function AiSettingsModal({ isOpen, onClose, mode = 'all' }) {
     const [openRouterModel, setOpenRouterModel] = useState(settings.openRouterModel || 'google/gemini-2.5-pro');
     const [openRouterThinkingEnabled, setOpenRouterThinkingEnabled] = useState(Boolean(settings.openRouterThinkingEnabled));
     const [openAiKey, setOpenAiKey] = useState(settings.openAiApiKey || '');
+    const [openAiModel, setOpenAiModel] = useState(settings.openAiModel || 'gpt-4o-mini');
     const [themeMode, setThemeMode] = useState(settings.themeMode || 'dark');
     const [quickAiContinueEnabled, setQuickAiContinueEnabled] = useState(Boolean(settings.quickAiContinueEnabled));
     const [activeTab, setActiveTab] = useState(defaultTab); // 'persona' or 'api'
@@ -29,6 +30,11 @@ export default function AiSettingsModal({ isOpen, onClose, mode = 'all' }) {
     const [openRouterModelsLoading, setOpenRouterModelsLoading] = useState(false);
     const [openRouterModelsError, setOpenRouterModelsError] = useState('');
     const [openRouterModelSearch, setOpenRouterModelSearch] = useState('');
+    const [openAiModels, setOpenAiModels] = useState([]);
+    const [openAiModelsLoading, setOpenAiModelsLoading] = useState(false);
+    const [openAiModelsError, setOpenAiModelsError] = useState('');
+    const [openAiModelsSource, setOpenAiModelsSource] = useState('');
+    const [openAiModelSearch, setOpenAiModelSearch] = useState('');
 
     // Sync form when selection changes
     React.useEffect(() => {
@@ -46,17 +52,24 @@ export default function AiSettingsModal({ isOpen, onClose, mode = 'all' }) {
             setOpenRouterModel(settings.openRouterModel || 'google/gemini-2.5-pro');
             setOpenRouterThinkingEnabled(Boolean(settings.openRouterThinkingEnabled));
             setOpenAiKey(settings.openAiApiKey || '');
+            setOpenAiModel(settings.openAiModel || 'gpt-4o-mini');
             setThemeMode(settings.themeMode || 'dark');
             setQuickAiContinueEnabled(Boolean(settings.quickAiContinueEnabled));
             setActiveTab(defaultTab);
         }
-    }, [isOpen, settings.openRouterApiKey, settings.openRouterModel, settings.openRouterThinkingEnabled, settings.openAiApiKey, settings.themeMode, settings.quickAiContinueEnabled, defaultTab]);
+    }, [isOpen, settings.openRouterApiKey, settings.openRouterModel, settings.openRouterThinkingEnabled, settings.openAiApiKey, settings.openAiModel, settings.themeMode, settings.quickAiContinueEnabled, defaultTab]);
 
     React.useEffect(() => {
         if (!isOpen || !showPersonaTab) return;
         if (openRouterModels.length > 0 || openRouterModelsLoading) return;
         loadOpenRouterModels();
     }, [isOpen, showPersonaTab]); // intentionally only on open/show
+
+    React.useEffect(() => {
+        if (!isOpen || !showApiTab) return;
+        if (openAiModels.length > 0 || openAiModelsLoading) return;
+        loadOpenAiModels();
+    }, [isOpen, showApiTab]); // intentionally only on open/show
 
     if (!isOpen) return null;
 
@@ -66,6 +79,7 @@ export default function AiSettingsModal({ isOpen, onClose, mode = 'all' }) {
             openRouterModel: openRouterModel || 'google/gemini-2.5-pro',
             openRouterThinkingEnabled: Boolean(openRouterThinkingEnabled),
             openAiApiKey: openAiKey.trim(),
+            openAiModel: openAiModel || 'gpt-4o-mini',
             themeMode: themeMode === 'light' ? 'light' : 'dark',
             quickAiContinueEnabled: Boolean(quickAiContinueEnabled),
         });
@@ -96,6 +110,14 @@ export default function AiSettingsModal({ isOpen, onClose, mode = 'all' }) {
         setThemeMode(nextMode);
         // Apply immediately so the user gets instant visual feedback.
         updateSettings({ themeMode: nextMode });
+    };
+
+    const handleQuickAiContinueToggle = () => {
+        setQuickAiContinueEnabled((prev) => {
+            const next = !prev;
+            updateSettings({ quickAiContinueEnabled: next });
+            return next;
+        });
     };
 
     const loadOpenRouterModels = async () => {
@@ -152,6 +174,49 @@ export default function AiSettingsModal({ isOpen, onClose, mode = 'all' }) {
             setOpenRouterThinkingEnabled(false);
         }
     };
+
+    const loadOpenAiModels = async () => {
+        setOpenAiModelsLoading(true);
+        setOpenAiModelsError('');
+        try {
+            const response = await fetch('/api/openai-cli/models');
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                setOpenAiModelsError(data?.error || `OpenAI models request failed (${response.status})`);
+                setOpenAiModelsSource(data?.source || '');
+                return;
+            }
+
+            const models = Array.isArray(data?.models) ? data.models : [];
+            const normalized = models
+                .filter((m) => m?.id)
+                .map((m) => ({
+                    id: m.id,
+                    ownedBy: m.owned_by || m.ownedBy || '',
+                    created: m.created || null,
+                }))
+                .sort((a, b) => a.id.localeCompare(b.id));
+
+            setOpenAiModels(normalized);
+            setOpenAiModelsSource(data?.source || '');
+
+            if (!normalized.some(m => m.id === openAiModel)) {
+                const fallback = normalized.find(m => m.id === 'gpt-4o-mini') || normalized[0];
+                if (fallback) setOpenAiModel(fallback.id);
+            }
+        } catch (error) {
+            console.error('Failed to load OpenAI models:', error);
+            setOpenAiModelsError(error.message || 'Failed to load OpenAI model list.');
+        } finally {
+            setOpenAiModelsLoading(false);
+        }
+    };
+
+    const filteredOpenAiModels = openAiModels.filter((model) => {
+        const q = openAiModelSearch.trim().toLowerCase();
+        if (!q) return true;
+        return model.id.toLowerCase().includes(q) || String(model.ownedBy || '').toLowerCase().includes(q);
+    });
 
     // The handleSave was replaced by handleSaveAPI above
 
@@ -461,6 +526,66 @@ export default function AiSettingsModal({ isOpen, onClose, mode = 'all' }) {
                                 </div>
 
                                 <div className="flex flex-col gap-3 p-4 vw-surface-2 rounded-lg border border-seahawks-gray/10">
+                                    <div className="flex items-start justify-between gap-3">
+                                        <div>
+                                            <div className="flex items-center gap-2">
+                                                <Brain size={16} className="text-seahawks-green" />
+                                                <label className="text-sm font-semibold vw-text-primary">
+                                                    OpenAI Model Picker (CLI/API)
+                                                </label>
+                                            </div>
+                                            <p className="text-xs text-seahawks-gray mt-1 leading-relaxed">
+                                                Select the model used for the local OpenAI/Codex path. The app will try to load the full live OpenAI models list. In Codex OAuth-only mode, list-all may be unavailable unless Python <code>openai</code> CLI or a server-side OpenAI key is available.
+                                            </p>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={loadOpenAiModels}
+                                            disabled={openAiModelsLoading}
+                                            className={clsx(
+                                                'shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border text-xs transition-colors',
+                                                openAiModelsLoading
+                                                    ? 'border-seahawks-gray/20 text-seahawks-gray cursor-not-allowed'
+                                                    : 'border-seahawks-green/30 text-seahawks-green hover:bg-seahawks-green/10'
+                                            )}
+                                        >
+                                            <RefreshCw size={13} className={clsx(openAiModelsLoading && 'animate-spin')} />
+                                            Refresh
+                                        </button>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <input
+                                            type="text"
+                                            value={openAiModelSearch}
+                                            onChange={(e) => setOpenAiModelSearch(e.target.value)}
+                                            placeholder="Search OpenAI models..."
+                                            className="w-full vw-surface-3 border border-seahawks-gray/20 rounded-md py-2 px-3 text-sm vw-text-primary focus:outline-none focus:border-seahawks-green transition-colors"
+                                        />
+                                        <select
+                                            value={openAiModel}
+                                            onChange={(e) => setOpenAiModel(e.target.value)}
+                                            className="w-full vw-surface-3 border border-seahawks-gray/20 rounded-md py-2 px-3 text-sm vw-text-primary focus:outline-none focus:border-seahawks-green transition-colors"
+                                        >
+                                            {(filteredOpenAiModels.length ? filteredOpenAiModels : [{ id: openAiModel }]).map((model) => (
+                                                <option key={model.id} value={model.id}>
+                                                    {model.id}{model.ownedBy ? ` (${model.ownedBy})` : ''}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        <div className="text-[11px] text-seahawks-gray leading-relaxed">
+                                            {openAiModelsLoading
+                                                ? 'Loading OpenAI models...'
+                                                : openAiModelsError
+                                                    ? `Model list unavailable: ${openAiModelsError}`
+                                                    : openAiModels.length > 0
+                                                        ? `Loaded ${openAiModels.length.toLocaleString()} models${openAiModelsSource ? ` via ${openAiModelsSource}` : ''}. Selected model will be passed to OpenAI CLI or Codex.`
+                                                        : 'No models loaded yet. You can still type/select a saved model value.'}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="flex flex-col gap-3 p-4 vw-surface-2 rounded-lg border border-seahawks-gray/10">
                                     <div className="flex items-center gap-2">
                                         <Palette size={16} className="text-seahawks-green" />
                                         <label className="text-sm font-semibold vw-text-primary">
@@ -521,7 +646,7 @@ export default function AiSettingsModal({ isOpen, onClose, mode = 'all' }) {
                                     </p>
                                     <button
                                         type="button"
-                                        onClick={() => setQuickAiContinueEnabled(prev => !prev)}
+                                        onClick={handleQuickAiContinueToggle}
                                         className={clsx(
                                             'flex items-center justify-between rounded-md border px-3 py-2 text-sm transition-colors',
                                             quickAiContinueEnabled

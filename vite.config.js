@@ -183,7 +183,7 @@ function openAiCliBridge() {
     return { codex, claude }
   }
 
-  const runCodexTextGeneration = async ({ messages, systemPrompt }) => {
+  const runCodexTextGeneration = async ({ messages, systemPrompt, model }) => {
     const tmpFile = path.join(os.tmpdir(), `vibe-codex-${Date.now()}-${Math.random().toString(36).slice(2)}.txt`)
     const parts = []
     if (systemPrompt) {
@@ -206,10 +206,31 @@ function openAiCliBridge() {
     const prompt = parts.join('\n\n')
 
     try {
-      await runCodexCli(
-        ['exec', '--ephemeral', '--skip-git-repo-check', '--color', 'never', '-o', tmpFile, prompt],
-        { timeout: 120000 }
-      )
+      const attempt = async (selectedModel) => {
+        const cliArgs = ['exec', '--ephemeral', '--skip-git-repo-check', '--color', 'never']
+        if (selectedModel) {
+          cliArgs.push('-m', String(selectedModel))
+        }
+        cliArgs.push('-o', tmpFile, prompt)
+        await runCodexCli(cliArgs, { timeout: 120000 })
+      }
+
+      try {
+        await attempt(model)
+      } catch (error) {
+        const stderr = `${error?.stderr || ''}\n${error?.stdout || ''}\n${error?.message || ''}`.toLowerCase()
+        const modelLikelyIncompatible =
+          Boolean(model) &&
+          (stderr.includes('unknown model') ||
+            stderr.includes('model') && stderr.includes('not found') ||
+            stderr.includes('invalid model'))
+
+        if (!modelLikelyIncompatible) throw error
+
+        console.warn(`Codex model "${model}" failed; retrying without explicit model.`)
+        await attempt(null)
+      }
+
       const output = await fs.readFile(tmpFile, 'utf8')
       return output.trim()
     } finally {
@@ -233,6 +254,65 @@ function openAiCliBridge() {
           return; // Prevent passing to other middlewares
         }
 
+        if (req.url === '/api/openai-cli/models' && req.method === 'GET') {
+          res.setHeader('Content-Type', 'application/json');
+          try {
+            const preferredStatus = await checkPreferredCliStatus()
+
+            // Best source for "all models" is the official Models API. Try authenticated Python CLI first.
+            try {
+              const { stdout } = await runOpenAiCli(['api', 'models.list']);
+              const parsed = safeJsonParse(stdout);
+              const models = Array.isArray(parsed?.data) ? parsed.data : [];
+              return res.end(JSON.stringify({
+                source: 'openai-python-cli',
+                provider: preferredStatus.provider || 'unknown',
+                models,
+              }));
+            } catch {
+              // fall through
+            }
+
+            // Fallback: direct OpenAI Models API via env key on the Vite process (if present).
+            if (process.env.OPENAI_API_KEY) {
+              const apiRes = await fetch('https://api.openai.com/v1/models', {
+                headers: {
+                  Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+                },
+              });
+              const data = await apiRes.json();
+              if (!apiRes.ok) {
+                res.statusCode = apiRes.status;
+                return res.end(JSON.stringify({
+                  error: data?.error?.message || 'Failed to load OpenAI models',
+                  source: 'openai-rest',
+                  provider: preferredStatus.provider || 'unknown',
+                }));
+              }
+
+              return res.end(JSON.stringify({
+                source: 'openai-rest',
+                provider: preferredStatus.provider || 'unknown',
+                models: Array.isArray(data?.data) ? data.data : [],
+              }));
+            }
+
+            res.statusCode = 400;
+            return res.end(JSON.stringify({
+              error: 'OpenAI model listing is unavailable in Codex OAuth-only mode unless Python `openai` CLI is installed/authenticated or OPENAI_API_KEY is set for the local server process.',
+              source: 'unavailable',
+              provider: preferredStatus.provider || 'unknown',
+              models: [],
+            }));
+          } catch (error) {
+            res.statusCode = 500;
+            return res.end(JSON.stringify({
+              error: formatCliError(error.stderr || error.stdout || error.message),
+              models: [],
+            }));
+          }
+        }
+
         if (req.url === '/api/openai-cli/chat' && req.method === 'POST') {
           let body = '';
           req.on('data', chunk => { body += chunk.toString(); });
@@ -240,7 +320,7 @@ function openAiCliBridge() {
             res.setHeader('Content-Type', 'application/json');
             try {
               const parsedBody = JSON.parse(body);
-              const { messages, systemPrompt, temperature } = parsedBody;
+              const { messages, systemPrompt, temperature, model } = parsedBody;
               const allMessages = [];
               if (systemPrompt) {
                 allMessages.push({ role: 'system', content: systemPrompt });
@@ -258,13 +338,13 @@ function openAiCliBridge() {
               let data
 
               if (preferredStatus.provider === 'codex') {
-                const text = await runCodexTextGeneration({ messages: messages || [], systemPrompt })
+                const text = await runCodexTextGeneration({ messages: messages || [], systemPrompt, model })
                 data = {
                   choices: [{ message: { role: 'assistant', content: text } }],
                   provider: 'codex',
                 }
               } else {
-                const cliArgs = ['api', 'chat.completions.create', '-m', 'gpt-4o-mini'];
+                const cliArgs = ['api', 'chat.completions.create', '-m', model || 'gpt-4o-mini'];
                 if (typeof temperature === 'number') {
                   cliArgs.push('-t', String(temperature));
                 }
