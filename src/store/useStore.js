@@ -60,12 +60,14 @@ const useStore = create(
     persist(
         (set, get) => ({
             // --- STATE ---
+            activeProfileId: null,
             activeProjectId: null,
             activeDocumentId: null,
             splitMode: false,
             activeDocumentIdSecondary: null,
 
-            projects: [], // { id, name, createdAt, updatedAt }
+            profiles: [], // { id, name, createdAt, lastActive, hasSeenOnboarding }
+            projects: [], // { id, profileId, name, createdAt, updatedAt }
             folders: [], // { id, projectId, name, order }
             documents: [], // { id, folderId, name, content, order, includeInContext, wordCount, tokenCount }
             documentVersions: [], // { id, documentId, documentName, content, textPreview, wordCount, tokenCount, source, label, createdAt }
@@ -84,16 +86,94 @@ const useStore = create(
 
             // --- ACTIONS ---
 
+            // Profiles (Pin Names)
+            createProfile: (name) => set((state) => {
+                const newProfile = {
+                    id: uuidv4(),
+                    name,
+                    createdAt: new Date().toISOString(),
+                    lastActive: new Date().toISOString(),
+                    hasSeenOnboarding: false,
+                };
+
+                // Create a default project for the new profile
+                const newProject = {
+                    id: uuidv4(),
+                    profileId: newProfile.id,
+                    name: 'Sample project number one',
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString(),
+                };
+
+                return {
+                    profiles: [...(state.profiles || []), newProfile],
+                    activeProfileId: newProfile.id,
+                    projects: [...(state.projects || []), newProject],
+                    activeProjectId: null,
+                    activeDocumentId: null,
+                    splitMode: false,
+                    activeDocumentIdSecondary: null,
+                };
+            }),
+
+            setActiveProfile: (id) => set((state) => {
+                const profiles = state.profiles || [];
+                const profileProjects = state.projects.filter(p => !p.profileId || p.profileId === id);
+                return {
+                    activeProfileId: id,
+                    profiles: profiles.map(p => p.id === id ? { ...p, lastActive: new Date().toISOString() } : p),
+                    activeProjectId: null,
+                    activeDocumentId: null,
+                    splitMode: false,
+                    activeDocumentIdSecondary: null,
+                };
+            }),
+
+            deleteProfile: (id) => set((state) => {
+                const remainingProfiles = (state.profiles || []).filter(p => p.id !== id);
+                const remainingProjects = state.projects.filter(p => p.profileId !== id);
+                const deletedProjectIds = new Set(state.projects.filter(p => p.profileId === id).map(p => p.id));
+
+                const remainingFolders = state.folders.filter(f => !deletedProjectIds.has(f.projectId));
+                const deletedFolderIds = new Set(state.folders.filter(f => deletedProjectIds.has(f.projectId)).map(f => f.id));
+
+                const remainingDocuments = state.documents.filter(d => !deletedFolderIds.has(d.folderId) && !deletedProjectIds.has(d.projectId));
+                const deletedDocIds = new Set(state.documents.filter(d => deletedFolderIds.has(d.folderId) || deletedProjectIds.has(d.projectId)).map(d => d.id));
+
+                const remainingVersions = state.documentVersions.filter(v => !deletedDocIds.has(v.documentId));
+
+                return {
+                    profiles: remainingProfiles,
+                    projects: remainingProjects,
+                    folders: remainingFolders,
+                    documents: remainingDocuments,
+                    documentVersions: remainingVersions,
+                    activeProfileId: state.activeProfileId === id ? null : state.activeProfileId,
+                    activeProjectId: state.activeProfileId === id ? null : state.activeProjectId,
+                    activeDocumentId: deletedDocIds.has(state.activeDocumentId) ? null : state.activeDocumentId,
+                    activeDocumentIdSecondary: deletedDocIds.has(state.activeDocumentIdSecondary) ? null : state.activeDocumentIdSecondary,
+                    splitMode: deletedDocIds.has(state.activeDocumentIdSecondary) ? false : state.splitMode,
+                };
+            }),
+
+            markOnboardingComplete: (profileId) => set((state) => {
+                const profiles = state.profiles || [];
+                return {
+                    profiles: profiles.map(p => p.id === profileId ? { ...p, hasSeenOnboarding: true } : p)
+                };
+            }),
+
             // Projects
             createProject: (name) => set((state) => {
                 const newProject = {
                     id: uuidv4(),
+                    profileId: state.activeProfileId,
                     name,
                     createdAt: new Date().toISOString(),
                     updatedAt: new Date().toISOString(),
                 };
                 return {
-                    projects: [...state.projects, newProject],
+                    projects: [...(state.projects || []), newProject],
                     activeProjectId: newProject.id, // Auto-select new project
                     activeDocumentId: null,
                     splitMode: false,
@@ -116,7 +196,7 @@ const useStore = create(
                     name,
                     order: state.folders.filter(f => f.projectId === projectId).length,
                 };
-                return { folders: [...state.folders, newFolder] };
+                return { folders: [...(state.folders || []), newFolder] };
             }),
 
             deleteFolder: (id) => set((state) => {
@@ -143,7 +223,7 @@ const useStore = create(
                     tokenCount: 0,
                 };
                 return {
-                    documents: [...state.documents, newDoc],
+                    documents: [...(state.documents || []), newDoc],
                     activeDocumentId: newDoc.id, // Auto-select new doc
                 };
             }),
@@ -330,17 +410,10 @@ const useStore = create(
 
             // Helper for first run initialization
             initializeDemoData: () => set((state) => {
-                if (state.projects.length > 0) return state; // Only run if empty
-
-                const projectId = uuidv4();
+                // Ensure default personas exist
+                if (state.personas.length > 0) return state;
 
                 return {
-                    activeProjectId: projectId,
-                    activeDocumentId: null,
-                    projects: [{ id: projectId, name: 'My First Project', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }],
-                    folders: [],
-                    documents: [],
-                    documentVersions: [],
                     personas: [
                         { id: uuidv4(), title: 'Strict Editor', description: 'Focuses on technical perfection and critique.', systemPrompt: 'You are a ruthless, highly critical editor. Point out every single grammar mistake, plot inconsistency, and weak verb. Do not hold back. Suggest punchy alternatives.' },
                         { id: uuidv4(), title: 'Creative Muse', description: 'Focuses on brainstorming and expansion.', systemPrompt: 'You are an imaginative creative writing partner. Help the author brainstorm wild ideas, expand on metaphors, and push the boundaries of their concepts. Respond enthusiastically and creatively.' }

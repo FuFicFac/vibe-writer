@@ -92,6 +92,19 @@
   .vw-text-soft {
     color: rgb(var(--vw-text-soft));
   }
+
+  @keyframes rock-slow {
+    0%, 100% {
+      transform: scale(1.1) rotate(-8deg);
+    }
+    50% {
+      transform: scale(1.1) rotate(8deg);
+    }
+  }
+
+  .hover-rock:hover svg {
+    animation: rock-slow 1.2s ease-in-out infinite;
+  }
 }
 
 @layer utilities {

@@ -8,15 +8,19 @@ import StartupCheckModal from './components/StartupCheckModal';
 import ExportModal from './components/ExportModal';
 import AiSettingsModal from './components/AiSettingsModal';
 import FindReplaceModal from './components/FindReplaceModal';
-import ProjectHubModal from './components/ProjectHubModal';
 import VersionHistoryModal from './components/VersionHistoryModal';
+import SplashScreen from './components/SplashScreen';
+import ProjectScreen from './components/ProjectScreen';
+import WelcomeModal from './components/WelcomeModal';
+import OnboardingTooltip from './components/OnboardingTooltip';
+import { UserCircle } from 'lucide-react';
 
 function App() {
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [welcomeModalOpen, setWelcomeModalOpen] = useState(false);
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
   const [aiSettingsMode, setAiSettingsMode] = useState('persona');
-  const [projectHubOpen, setProjectHubOpen] = useState(false);
   const [findReplaceOpen, setFindReplaceOpen] = useState(false);
   const [versionHistoryOpen, setVersionHistoryOpen] = useState(false);
   const [importPreviewState, setImportPreviewState] = useState(null);
@@ -26,7 +30,9 @@ function App() {
     initializeDemoData, activeProjectId, projects,
     splitMode, activeDocumentId, activeDocumentIdSecondary, toggleSplitMode,
     setActiveProject, createProject,
-    folders, documents, updateDocumentContent, setActiveDocument, settings
+    folders, documents, updateDocumentContent, setActiveDocument, settings,
+    activeProfileId, setActiveProfile, profiles,
+    markOnboardingComplete
   } = useStore();
 
   const handleExportWorkspaceJson = () => {
@@ -154,23 +160,46 @@ function App() {
     document.documentElement.dataset.theme = 'dark';
   }, [settings?.themeMode]);
 
-  const activeProject = projects.find(p => p.id === activeProjectId);
+  const activeProfile = profiles?.find(p => p.id === activeProfileId);
+
+  useEffect(() => {
+    if (activeProfile && !activeProfile.hasSeenOnboarding) {
+      setWelcomeModalOpen(true);
+    } else {
+      setWelcomeModalOpen(false);
+    }
+  }, [activeProfile]);
+
+  const handleCloseWelcomeModal = () => {
+    setWelcomeModalOpen(false);
+  };
+
+  const handleOpenSidebar = () => {
+    setSidebarOpen(true);
+    if (activeProfile && !activeProfile.hasSeenOnboarding) {
+      markOnboardingComplete(activeProfile.id);
+    }
+  };
+
+  if (!activeProfileId) {
+    return <SplashScreen />;
+  }
+
+  if (!activeProjectId) {
+    return (
+      <>
+        <StartupCheckModal />
+        <ProjectScreen />
+      </>
+    );
+  }
+
+  const activeProfileProjects = projects.filter(p => !p.profileId || p.profileId === activeProfileId);
+  const activeProject = activeProfileProjects.find(p => p.id === activeProjectId);
 
   const openAiSettings = (mode) => {
     setAiSettingsMode(mode);
     setAiSettingsOpen(true);
-  };
-
-  const handleOpenProject = (projectId) => {
-    setActiveProject(projectId);
-    setProjectHubOpen(false);
-  };
-
-  const handleCreateProjectFromHub = () => {
-    const name = prompt('Enter new project name:');
-    if (!name || !name.trim()) return;
-    createProject(name.trim());
-    setProjectHubOpen(false);
   };
 
   const handleNavigateFindResult = (payload) => {
@@ -183,6 +212,11 @@ function App() {
   return (
     <div className="flex h-screen w-full bg-seahawks-navy text-seahawks-gray overflow-hidden font-sans">
       <StartupCheckModal />
+      <WelcomeModal
+        isOpen={welcomeModalOpen}
+        onClose={handleCloseWelcomeModal}
+        profileName={activeProfile?.name}
+      />
       <ExportModal isOpen={exportModalOpen} onClose={() => setExportModalOpen(false)} />
       <AiSettingsModal isOpen={aiSettingsOpen} onClose={() => setAiSettingsOpen(false)} mode={aiSettingsMode} />
       <FindReplaceModal
@@ -206,14 +240,6 @@ function App() {
         onCancel={() => setImportPreviewState(null)}
         onConfirm={handleConfirmImport}
       />
-      <ProjectHubModal
-        isOpen={projectHubOpen}
-        onClose={() => setProjectHubOpen(false)}
-        projects={projects}
-        activeProjectId={activeProjectId}
-        onOpenProject={handleOpenProject}
-        onCreateProject={handleCreateProjectFromHub}
-      />
 
       {/* LEFT PANE: Document Editor & Header/Footer */}
       <div className="flex-1 flex flex-col relative transition-all duration-300 w-full">
@@ -231,25 +257,29 @@ function App() {
               </div>
               <span className="ml-3 font-bold text-lg tracking-[0.3em] text-seahawks-green uppercase opacity-80 group-hover:opacity-100 transition-opacity">Writer</span>
             </div>
-
-            {/* Project Breadcrumb */}
-            {activeProject && (
-              <div className="hidden md:flex flex-row items-center gap-2 ml-6 text-sm">
-                <div className="w-px h-4 bg-seahawks-gray/20 mx-2" />
-                <button
-                  onClick={() => setProjectHubOpen(true)}
-                  className="text-seahawks-gray/50 hover:text-seahawks-green transition-colors"
-                  title="Open Project Hub"
-                >
-                  Projects
-                </button>
-                <span className="text-seahawks-gray/30">/</span>
-                <span className="vw-text-primary font-medium">{activeProject.name}</span>
-              </div>
-            )}
           </div>
 
           <div className="flex items-center gap-2">
+            {activeProject && (
+              <button
+                onClick={() => setActiveProject(null)}
+                title="Back to Projects"
+                className="flex items-center gap-1.5 p-1.5 px-3 rounded-md hover:bg-seahawks-navy/50 text-seahawks-green bg-seahawks-green/5 transition-colors mr-1 border border-transparent hover:border-seahawks-green/20"
+              >
+                <BookOpen size={14} />
+                <span className="text-sm font-semibold hidden md:inline">Projects</span>
+              </button>
+            )}
+            {activeProfile && (
+              <button
+                onClick={() => setActiveProfile(null)}
+                title="Switch Pin Name"
+                className="flex items-center gap-1.5 p-1.5 px-3 rounded-full hover:bg-seahawks-navy/50 text-white bg-seahawks-gray/10 transition-colors mr-2 border border-seahawks-gray/20 hover:border-seahawks-green/40 group"
+              >
+                <UserCircle size={14} className="text-seahawks-green group-hover:scale-110 transition-transform" />
+                <span className="text-xs font-semibold text-seahawks-gray group-hover:text-white transition-colors">{activeProfile.name}</span>
+              </button>
+            )}
             <button onClick={() => setFindReplaceOpen(true)} title="Find & Replace" className="p-2 rounded-md hover:bg-seahawks-navy/30 text-seahawks-gray transition-colors hover:text-white"><Search size={18} /></button>
             <button
               onClick={() => setVersionHistoryOpen(true)}
@@ -312,13 +342,16 @@ function App() {
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
       {!sidebarOpen && (
-        <button
-          onClick={() => setSidebarOpen(true)}
-          title="Open Sidebar"
-          className="absolute right-4 top-1/2 -translate-y-1/2 z-30 p-2.5 rounded-lg border border-seahawks-gray/20 vw-surface-2 backdrop-blur-sm text-seahawks-gray hover:text-white hover:border-seahawks-green/40 hover:bg-seahawks-navy transition-colors shadow-lg"
-        >
-          <Menu size={18} />
-        </button>
+        <>
+          <OnboardingTooltip isVisible={!welcomeModalOpen && activeProfile && !activeProfile.hasSeenOnboarding} />
+          <button
+            onClick={handleOpenSidebar}
+            title="Open Sidebar"
+            className="absolute right-4 top-1/2 -translate-y-1/2 z-30 p-2.5 rounded-lg border border-seahawks-gray/20 vw-surface-2 backdrop-blur-sm text-seahawks-gray hover:text-white hover:border-seahawks-green/40 hover:bg-seahawks-navy transition-colors shadow-lg"
+          >
+            <Menu size={18} />
+          </button>
+        </>
       )}
 
     </div>
@@ -393,9 +426,9 @@ function buildImportMergeSummary(currentState, importedData) {
       : { imported: 0, newItems: 0, updates: 0, unchanged: 0 },
     settings: importedData.settings && typeof importedData.settings === 'object'
       ? {
-          keysIncoming: Object.keys(importedData.settings).length,
-          keysChanged: Object.entries(importedData.settings).filter(([k, v]) => currentState.settings?.[k] !== v).length,
-        }
+        keysIncoming: Object.keys(importedData.settings).length,
+        keysChanged: Object.entries(importedData.settings).filter(([k, v]) => currentState.settings?.[k] !== v).length,
+      }
       : { keysIncoming: 0, keysChanged: 0 },
   };
 }

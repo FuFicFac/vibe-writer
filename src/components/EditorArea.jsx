@@ -7,6 +7,7 @@ import { TextAlign } from '@tiptap/extension-text-align';
 import { Highlight } from '@tiptap/extension-highlight';
 import { TextStyle } from '@tiptap/extension-text-style';
 import { Color } from '@tiptap/extension-color';
+import { FontFamily } from '@tiptap/extension-font-family';
 import { Subscript } from '@tiptap/extension-subscript';
 import { Superscript } from '@tiptap/extension-superscript';
 import {
@@ -41,6 +42,8 @@ export default function EditorArea({ documentId, isSecondary, findNavigationRequ
         error: '',
     });
 
+    const [showFontMenu, setShowFontMenu] = useState(false);
+
     const activeDocument = documents.find(d => d.id === documentId);
     const aiBusy = isGenerating || expandDialog.isGenerating;
 
@@ -52,13 +55,14 @@ export default function EditorArea({ documentId, isSecondary, findNavigationRequ
             Highlight.configure({ multicolor: true }),
             TextStyle,
             Color,
+            FontFamily,
             Subscript,
             Superscript
         ],
         content: activeDocument?.content || '',
         editorProps: {
             attributes: {
-                class: 'prose vw-editor-prose prose-lg focus:outline-none max-w-none prose-headings:font-serif prose-p:font-serif',
+                class: 'prose vw-editor-prose prose-lg focus:outline-none max-w-none',
             },
         },
         onUpdate: ({ editor }) => {
@@ -472,13 +476,21 @@ export default function EditorArea({ documentId, isSecondary, findNavigationRequ
             <footer className="h-14 border-t vw-border flex items-center justify-between px-6 vw-surface-2 backdrop-blur-md absolute bottom-0 left-0 right-0 z-10 w-full overflow-x-auto scrollbar-hide">
                 <div className="flex items-center gap-1 min-w-max">
 
-                    {/* Font & Size (Visual Only for now) */}
-                    <div className="flex items-center">
-                        <button className="px-3 h-8 flex items-center justify-center rounded hover:bg-seahawks-navy/50 text-seahawks-gray transition-colors text-sm border border-transparent hover:border-seahawks-gray/20">
-                            Times New Roman <span className="ml-2 text-[10px]">▼</span>
+                    {/* Font & Size */}
+                    <div className="flex items-center relative">
+                        <button
+                            onClick={() => setShowFontMenu(!showFontMenu)}
+                            className="px-3 h-8 flex items-center justify-center rounded hover:bg-seahawks-navy/50 text-seahawks-gray transition-colors text-sm border border-transparent hover:border-seahawks-gray/20"
+                        >
+                            <span style={{ fontFamily: editor?.getAttributes('textStyle').fontFamily || 'Inter' }}>
+                                {editor?.getAttributes('textStyle').fontFamily || 'Inter'}
+                            </span>
+                            <span className="ml-2 text-[10px]">▼</span>
                         </button>
+
+
                         <div className="w-px h-4 bg-seahawks-gray/20 mx-2" />
-                        <button className="px-3 h-8 flex items-center justify-center rounded hover:bg-seahawks-navy/50 text-seahawks-gray transition-colors text-sm border border-transparent hover:border-seahawks-gray/20">
+                        <button className="px-3 h-8 flex items-center justify-center rounded hover:bg-seahawks-navy/50 text-seahawks-gray transition-colors text-sm border border-transparent hover:border-seahawks-gray/20 opacity-50 cursor-not-allowed tooltip" title="Text sizes coming soon">
                             16pt <span className="ml-2 text-[10px]">▼</span>
                         </button>
                     </div>
@@ -730,6 +742,46 @@ export default function EditorArea({ documentId, isSecondary, findNavigationRequ
                         </div>
                     </div>
                 </div>
+            )}
+
+            {showFontMenu && (
+                <>
+                    <div className="fixed inset-0 z-[100]" onClick={() => setShowFontMenu(false)} />
+                    <div className="fixed bottom-16 left-6 w-48 max-h-[60vh] overflow-y-auto custom-scrollbar vw-surface-2 border vw-border rounded-lg shadow-2xl py-1 z-[110] flex flex-col isolate">
+                        {[
+                            { label: 'Inter', value: 'Inter, sans-serif' },
+                            { label: 'Times New Roman', value: '"Times New Roman", Times, serif' },
+                            { label: 'Georgia', value: 'Georgia, serif' },
+                            { label: 'Arial', value: 'Arial, Helvetica, sans-serif' },
+                            { label: 'Courier New', value: '"Courier New", Courier, monospace' },
+                            { label: 'Comic Sans MS', value: '"Comic Sans MS", "Comic Sans", cursive' },
+                            { label: 'Impact', value: 'Impact, Charcoal, sans-serif' },
+                            { label: 'Lucida Console', value: '"Lucida Console", Monaco, monospace' },
+                            { label: 'Palatino', value: '"Palatino Linotype", "Book Antiqua", Palatino, serif' },
+                            { label: 'Trebuchet MS', value: '"Trebuchet MS", "Lucida Grande", "Lucida Sans Unicode", "Lucida Sans", Tahoma, sans-serif' },
+                            { label: 'Verdana', value: 'Verdana, Geneva, sans-serif' },
+                            { label: 'Garamond', value: 'Garamond, serif' },
+                            { label: 'Helvetica', value: 'Helvetica, Arial, sans-serif' },
+                            { label: 'Bookman', value: '"Bookman Old Style", serif' },
+                            { label: 'Papyrus', value: 'Papyrus, fantasy' }
+                        ].map(font => (
+                            <button
+                                key={font.label}
+                                onClick={() => {
+                                    editor.chain().focus().setFontFamily(font.value).run();
+                                    setShowFontMenu(false);
+                                }}
+                                className={clsx(
+                                    "w-full text-left px-4 py-2 text-sm hover:bg-seahawks-navy/80 transition-colors shrink-0",
+                                    editor?.getAttributes('textStyle').fontFamily === font.value ? "text-seahawks-green bg-seahawks-navy/50" : "vw-text-primary"
+                                )}
+                                style={{ fontFamily: font.value }}
+                            >
+                                {font.label}
+                            </button>
+                        ))}
+                    </div>
+                </>
             )}
         </div>
     );
